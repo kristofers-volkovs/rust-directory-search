@@ -1,21 +1,17 @@
-use std::fs;
-use std::thread;
+use std::{fs, thread};
 
 fn main() {
     let path = "/home/krysto/programming/masters";
     let extension = ".py";
-    let pool_size = 4;
+    // let pool_size = 4;
 
     let activity = Activity::new(path, extension);
+    let task = thread::spawn(move || activity.compute());
 
-    let pool = rayon::ThreadPoolBuilder::new()
-        .num_threads(pool_size)
-        .build()
-        .unwrap();
-
-    let result = pool.install(|| activity.compute());
-    for s in result.iter() {
-        println!("{}", s);
+    if let Ok(res) = task.join() {
+        for s in res.iter() {
+            println!("{}", s);
+        }
     }
 }
 
@@ -33,12 +29,12 @@ impl Activity {
     }
 
     fn compute(&self) -> Vec<String> {
-        let mut list = Vec::new();
-        let mut tasks = Vec::new();
+        let mut res: Vec<String> = Vec::new();
+        let mut join_tasks = Vec::new();
 
         let content = match fs::read_dir(&self.path) {
             Ok(dir) => dir,
-            Err(_) => return list,
+            Err(_) => return res,
         };
 
         for entry in content {
@@ -51,20 +47,21 @@ impl Activity {
             let path_str = path.to_str().unwrap();
 
             if path.is_dir() {
-                let task = Activity::new(path_str, &self.extension);
-                tasks.push(thread::spawn(move || task.compute()));
+                let activity = Activity::new(path_str, &self.extension);
+                let task = thread::spawn(move || activity.compute());
+                join_tasks.push(task);
             } else if path.is_file() && self.check_file_extension(path_str) {
-                list.push(path.display().to_string());
+                res.push(path.display().to_string());
             }
         }
 
-        for task in tasks {
-            if let Ok(file_path_list) = task.join() {
-                list.extend(file_path_list);
+        for task in join_tasks {
+            if let Ok(path_vec) = task.join() {
+                res.extend(path_vec);
             }
         }
 
-        list
+        res
     }
 
     fn check_file_extension(&self, path: &str) -> bool {
